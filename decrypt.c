@@ -7,6 +7,13 @@
 
 #define ENTIRE_FILE -1
 
+struct decrypt_state {
+    int off1;
+    int off2;
+    int off3;
+    int off4;
+};
+
 char xor_tbl[] =
 {
   0xC9, 0x95, 0x84, 0xBD, 0x65, 0x15, 0x16, 0x15, 0xD2, 0xE7, 
@@ -70,36 +77,20 @@ static int load_file(const char *filename, int max_len, char **out_contents)
     return len;
 }
 
-int decrypt_500kb(const char *filename)
+static int decrypt_impl(const char *filename,
+                        int max_len,
+                        char (*each)(char, struct decrypt_state *))
 {
     FILE *fp;
     char *buf, *cur;
     int len;
-    int off1 = 0, off2 = 0, off3 = 0, off4 = 0;
+    struct decrypt_state ds = { 0 };
 
-    len = load_file(filename, 500000, &buf);
+    len = load_file(filename, max_len, &buf);
     fp = fopen(filename, "r+b");
 
     for (cur = buf; cur < buf + len; cur++) {
-        *cur ^= xor_tbl[off4 + 56]
-             ^  xor_tbl[off3 + 36]
-             ^  xor_tbl[off2 + 16]
-             ^  xor_tbl[off1     ];
-
-    /*    char v1 = xor_tbl[off1];
-        char v2 = xor_tbl[off2 + 16];
-        char v3 = xor_tbl[off3 + 36];
-        char v4 = xor_tbl[off4 + 56];
-        
-        char i1 = v1 ^ v2;
-        char i2 = *cur ^ i1;
-        char i3 = i2 ^ v3;
-        *cur = i3 ^ v4; */
-
-        off1 = (off1 + 1) % 15;
-        off2 = (off2 + 1) % 17;
-        off3 = (off3 + 1) % 19;
-        off4 = (off4 + 1) % 23;
+        *cur ^= each(*cur, &ds);
     }
 
     fwrite(buf, len, 1, fp);
@@ -108,6 +99,26 @@ int decrypt_500kb(const char *filename)
     free(buf);
 
     return 1;
+}
+
+char each_500kb(char in, struct decrypt_state *ds)
+{
+    char ret = xor_tbl[ds->off4 + 56]
+             ^ xor_tbl[ds->off3 + 36]
+             ^ xor_tbl[ds->off2 + 16]
+             ^ xor_tbl[ds->off1     ];
+    
+    ds->off1 = (ds->off1 + 1) % 15;
+    ds->off2 = (ds->off2 + 1) % 17;
+    ds->off3 = (ds->off3 + 1) % 19;
+    ds->off4 = (ds->off4 + 1) % 23;
+
+    return ret;
+}
+
+int decrypt_500kb(const char *filename)
+{
+    return decrypt_impl(filename, 500000, each_500kb);
 }
 
 int decrypt_asset(const char *filename)
